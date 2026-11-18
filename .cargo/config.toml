@@ -1,0 +1,4 @@
+# Local builds target the build host (`native`) so auto-vectorized SSM code matches the hand-written
+# #[target_feature] kernels. CI and release builds override this via RUSTFLAGS (portable target-cpu).
+[build]
+rustflags = ["-C", "target-cpu=native"]

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "artificer": {
+      "command": "/REPLACE_WITH_HOME/Projects/Artificer/target/release/artificer",
+      "args": [
+        "mcp",
+        "/REPLACE_WITH_HOME/path/to/your-model.gguf",
+        "--ctx",
+        "2048",
+        "--kv-f16",
+        "--model-id",
+        "your-model"
+      ]
+    }
+  }
+}

@@ -1,0 +1,27 @@
+[package]
+name = "artificer-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Artificer OpenAI-compatible HTTP server with MCP/tool-calling support"
+
+[dependencies]
+artificer-runtime = { workspace = true }
+artificer-core = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+futures-util = "0.3"
+
+[dev-dependencies]
+gguf = { workspace = true }
+
+[features]
+default = []
+cuda = ["artificer-runtime/cuda", "artificer-core/cuda"]

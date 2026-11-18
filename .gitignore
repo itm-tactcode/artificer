@@ -1,0 +1,16 @@
+/target
+**/*.rs.bk
+.idea/
+.vscode/
+*.swp
+*.gguf
+!crates/gguf/tests/fixtures/*.gguf
+.DS_Store
+
+# Local scratch / speed-iteration backups
+**/*.bak*
+**/*.bak-*/
+Cargo.toml.bak*
+
+# Tauri/desktop build artifacts
+desktop/target/

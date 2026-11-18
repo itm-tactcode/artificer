@@ -1,0 +1,6 @@
+# Pinned toolchain for local builds and gates; CI installs the same version explicitly and also sets
+# RUSTUP_TOOLCHAIN (which takes precedence over this file), so both resolve to 1.100.0.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

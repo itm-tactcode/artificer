@@ -1,0 +1,31 @@
+[package]
+name = "artificer-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Artificer desktop shell. Tauri 2, system webview, static chrome."
+
+[dependencies]
+artificer-client = { path = "../crates/client" }
+# Shared DEFAULT_MAX_TOKENS / MAX_TOKENS_CEILING (pure Rust, no default features, no CUDA).
+artificer-core = { path = "../crates/core" }
+# The built-in runtime: the same server as `artificer serve`, in this process (CPU only).
+artificer-server = { path = "../crates/server" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "=2.12.1", features = [] }
+# Native file picker. No gtk3 default: on Linux it asks the desktop through the XDG portal
+# (KDE gets the KDE dialog), with zenity as rfd's own fallback; native dialogs on Windows and macOS.
+tauri-plugin-dialog = { version = "2.8.4", default-features = false, features = ["xdg-portal"] }
+
+# Window icons on Windows (WM_SETICON small + big). Same 0.62.2 Tauri already pulls in; no new package.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+] }
+
+[build-dependencies]
+tauri-build = { version = "=2.7.1" }

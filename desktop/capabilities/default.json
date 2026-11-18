@@ -1,0 +1,22 @@
+{
+  "identifier": "default",
+  "description": "Health, chat, and a local weights file for the Artificer shell",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-check-health",
+    "allow-chat-complete",
+    "allow-chat-stream",
+    "allow-stop-stream",
+    "allow-mcp-tools-list",
+    "allow-client-caps",
+    "allow-loaded-model",
+    "allow-loaded-model-info",
+    "allow-local-weight-files",
+    "allow-pick-local-weights",
+    "allow-load-local-weights",
+    "allow-smoke-prompt",
+    "allow-runtime-probe",
+    "allow-runtime-ensure"
+  ]
+}

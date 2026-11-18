@@ -1,0 +1,59 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/gguf",
+    "crates/core",
+    "crates/runtime",
+    "crates/server",
+    "crates/cli",
+    "crates/client",
+    "desktop",
+]
+default-members = [
+    "crates/gguf",
+    "crates/core",
+    "crates/runtime",
+    "crates/server",
+    "crates/cli",
+    "crates/client",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/itm-tactcode/artificer"
+
+[workspace.dependencies]
+# Internal crates
+gguf = { path = "crates/gguf" }
+artificer-core = { path = "crates/core" }
+artificer-runtime = { path = "crates/runtime" }
+artificer-server = { path = "crates/server" }
+
+# Shared external deps (minimal, license-friendly)
+thiserror = "2"
+anyhow = "1"
+memmap2 = "0.9"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+axum = { version = "0.8", features = ["json"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+uuid = { version = "1", features = ["v4"] }
+# >= 2.22 renders bool/none as Python `True`/`False`/`None` like jinja2 (GGUF chat
+# templates are jinja2 templates). Cargo.lock is committed and CI builds with --locked;
+# the "2.24" floor also keeps unlocked builds from resolving 2.21 (`true`).
+minijinja = "2.24"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+strip = "symbols"
+
+[profile.bench]
+inherits = "release"

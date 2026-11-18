@@ -1,0 +1,27 @@
+[package]
+name = "artificer-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Artificer inference core: tokenizer, transformer blocks, KV cache, sampling"
+
+[dependencies]
+gguf = { workspace = true }
+thiserror = { workspace = true }
+minijinja = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+# Host RAM for the context budget (sysmem.rs). Both versions are already in Cargo.lock.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[features]
+default = []
+# Optional CUDA backend (device GEMV/GEMM via cuBLAS dlopen). CPU path never requires CUDA.
+cuda = []

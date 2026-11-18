@@ -1,0 +1,25 @@
+[package]
+name = "artificer-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Artificer CLI — local LLM inference engine"
+
+[[bin]]
+name = "artificer"
+path = "src/main.rs"
+
+[dependencies]
+gguf = { workspace = true }
+artificer-core = { workspace = true }
+artificer-runtime = { workspace = true }
+artificer-server = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+default = []
+cuda = ["artificer-runtime/cuda", "artificer-core/cuda", "artificer-server/cuda"]

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Artificer</title>
+  <link rel="stylesheet" href="chrome.css">
+  <link rel="stylesheet" href="empty-state.css">
+</head>
+<body>
+  <!-- Resting markup is state 1 (no model) of the empty-state-r1 design addendum. app-state.js
+       holds every state's strings; app.js applies them. -->
+  <div class="stage">
+    <section class="window" aria-label="Artificer window chrome">
+      <header class="titlebar">
+        <span class="titlebar-name">Artificer</span>
+      </header>
+
+      <div class="health" role="status" aria-label="Runtime health">
+        <span class="health-pip" data-tone="idle" aria-hidden="true"></span>
+        <span class="health-label">Health</span>
+        <span data-health-model>model: none</span>
+        <span data-health-runtime>runtime: not started</span>
+        <span data-health-endpoint hidden></span>
+        <span class="health-note" data-health-note hidden></span>
+      </div>
+
+      <div class="weights" aria-label="Model weights">
+        <span class="weights-label">Weights</span>
+        <span class="weights-path" data-weights-path data-empty>No model selected</span>
+        <span class="weights-status" role="status" data-weights-status hidden></span>
+        <span class="backend-badge" data-backend-badge data-tone="unknown" hidden></span>
+        <button type="button" class="weights-change" data-emphasis="primary">Change</button>
+      </div>
+
+      <div class="weights-pathrow" aria-label="Load a model by path" data-weights-pathrow>
+        <label class="weights-pathrow-label" for="weights-path-input">or paste a path</label>
+        <input id="weights-path-input" type="text" spellcheck="false" autocomplete="off" placeholder="Full path to a .gguf file">
+        <button type="button" class="weights-load">Load</button>
+        <p class="weights-error" id="weights-error" role="alert" data-weights-note hidden></p>
+      </div>
+
+      <div class="transcript" aria-label="Transcript" data-empty>
+        <div class="empty-state" data-empty-state>
+          <p class="empty-state-line" data-empty-line>Choose a .gguf model file with <span class="ref-change">Change</span> to start.</p>
+          <p class="empty-state-sub" data-empty-sub>Artificer runs models on this computer. It doesn’t download any.</p>
+          <p class="empty-state-detail" role="alert" data-empty-detail hidden></p>
+          <button type="button" class="empty-state-action" data-empty-retry hidden>Retry</button>
+        </div>
+      </div>
+
+      <div class="composer" aria-label="Composer">
+        <textarea rows="1" aria-label="Message" disabled placeholder="Load a model to start chatting"></textarea>
+        <button type="button" class="composer-send" disabled>Send</button>
+      </div>
+    </section>
+  </div>
+  <script src="metrics.js"></script>
+  <script src="thinking.js"></script>
+  <script src="app-state.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

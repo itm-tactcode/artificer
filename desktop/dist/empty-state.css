@@ -1,0 +1,222 @@
+/* Shipped copy of design addendum empty-state-r1/empty-state.css (Art Bot, 2026-11-14), sha256
+   3c55e1ebd8625c75b45983684c6678132de3c36551ac0ecab118755d1802186f. Everything below this comment is
+   that file unchanged; app-only rules (the [hidden] overrides) are at the end of chrome.css. */
+/* Artificer 0.1.0 first-launch empty state — DESIGN MOCK ADDENDUM (r1).
+   Loaded AFTER the unchanged desktop/dist/chrome.css. Existing tokens only:
+   no new colours, no new fonts. Never red: problems use --warn, like stream-notice. */
+
+/* HEALTH pip tone. Today the pip is always cyan, even when the runtime is unreachable. */
+.health-pip[data-tone="idle"] { background: var(--text-dim); box-shadow: none; }
+.health-pip[data-tone="busy"] { background: var(--cyan); animation: pip-pulse 1.2s ease-in-out infinite; }
+.health-pip[data-tone="warn"] { background: var(--warn); box-shadow: 0 0 6px rgba(240, 180, 41, 0.45); }
+.health [data-tone="warn"]:not(.health-pip) { color: var(--warn); }
+
+/* One fix-hint line under the HEALTH values (runtime-error state only). */
+.health-hint {
+  flex: 1 0 100%;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+.health-hint code { font-family: var(--mono); color: var(--text); }
+
+/* WEIGHTS row: empty value is muted, not white. */
+.weights-path[data-empty] { color: var(--text-muted); }
+
+/* CHANGE as the one primary action (no model loaded, runtime ready).
+   Same fill as the enabled SEND, so the eye goes there first. */
+.weights-change[data-emphasis="primary"] {
+  color: var(--bg);
+  background: var(--cyan);
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px var(--cyan-dim);
+  font-weight: 600;
+}
+/* CHANGE disabled (loading, or runtime unreachable): same as .composer-send:disabled. */
+.weights-change:disabled {
+  color: var(--text-dim);
+  background: transparent;
+  border-color: var(--border);
+  box-shadow: none;
+  cursor: default;
+}
+
+/* "Loading…" in the WEIGHTS row, between the path and CHANGE. */
+.weights-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cyan-soft);
+}
+.weights-status::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--cyan);
+  animation: pip-pulse 1.2s ease-in-out infinite;
+}
+
+/* Empty transcript: one centred line + optional small second line. */
+.transcript[data-empty] { justify-content: center; align-items: center; }
+.empty-state {
+  max-width: 30rem;
+  text-align: center;
+  padding: 0 1rem;
+}
+.empty-state-line {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+.empty-state-sub {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.empty-state-sub code {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+/* Inline reference to the CHANGE button inside copy. Text only, not clickable. */
+.ref-change {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cyan-soft);
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border-cyan);
+  border-radius: 6px;
+}
+
+/* Composer disabled until a model is loaded. */
+.composer textarea:disabled {
+  color: var(--text-dim);
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  cursor: not-allowed;
+  opacity: 1;
+}
+.composer textarea:focus,
+.composer textarea.is-focused { outline: none; border-color: var(--border-cyan); }
+
+@keyframes pip-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .health-pip[data-tone="busy"], .weights-status::before { animation: none; }
+}
+
+/* Typed-path fallback row, directly under WEIGHTS. Always visible while no model is loaded
+   (states no-model, picker-error, load-error, runtime-error[disabled]). Visually secondary:
+   dim label, outline LOAD, never the cyan fill. PENDING the picker decision (native per OS). */
+.weights-pathrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.65rem;
+  padding: 0.4rem 0.85rem 0.5rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+.weights-pathrow-label {
+  flex: 0 0 auto;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+.weights-pathrow input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  height: 26px;
+  margin: 0;
+  padding: 0 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.weights-pathrow input::placeholder { color: var(--text-dim); }
+.weights-pathrow input:disabled { background: var(--bg-elevated); color: var(--text-dim); cursor: not-allowed; }
+.weights-pathrow input[aria-invalid="true"] { border-color: var(--warn); }
+.weights-load {
+  flex: 0 0 auto;
+  margin: 0;
+  height: 26px;
+  padding: 0 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.weights-load:disabled { color: var(--text-dim); cursor: default; }
+/* Inline error under the path box (picker unavailable, picker failed, load failed).
+   Same look as .stream-notice: --warn 2px rule, muted text. Never red. */
+.weights-error {
+  flex: 1 0 100%;
+  margin: 0.1rem 0 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--warn);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+.weights-error-detail {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Variant B only: detail line + RETRY in the empty transcript (runtime failed to start).
+   RETRY uses the normal CHANGE outline look, not the cyan fill. */
+.empty-state-detail {
+  margin: 0.45rem auto 0;
+  max-width: 28rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--warn);
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.empty-state-action {
+  margin-top: 0.9rem;
+  padding: 0.3rem 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cyan-soft);
+  background: transparent;
+  border: 1px solid var(--border-cyan);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* "Connected to your running server": muted note at the end of HEALTH (B-8 only). */
+.health-note {
+  white-space: nowrap;
+  margin-left: auto;
+  padding: 0 0.45rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.7rem;
+}

@@ -1,0 +1,417 @@
+# Artificer CI: CPU-only release builds + tests, uploaded as short-lived workflow artifacts.
+# No releases, tags, publishing, deploys or secrets. No CUDA toolkit or GPU in CI: the linux-cuda job is
+# compile-only (CUDA is loaded at runtime via dlopen + NVRTC, so building --features cuda needs no CUDA install).
+#
+# Portable CPU target: the repo .cargo/config.toml sets [build] rustflags = target-cpu=native.
+# The RUSTFLAGS env var takes precedence over every rustflags setting in Cargo config
+# (build.rustflags and target.<triple>.rustflags), so the per-job RUSTFLAGS below replace
+# "native" entirely; nothing from config.toml is merged in.
+#   x86_64: x86-64-v3 (AVX2/FMA/F16C/BMI2, Haswell 2013+ / Zen 1+). AVX-512 / VNNI kernels are still
+#           chosen at runtime (crates/core/src/quant/simd.rs:17-29 is_x86_feature_detected!, cached).
+#   macOS aarch64: apple-m1 = the target default, i.e. "native" overridden away. Kernels are scalar there.
+#
+# Desktop app (Tauri 2) on all three OS: linux-desktop (ubuntu-22.04, so the binary needs only glibc 2.35 and
+# WebKitGTK 4.1) packs a plain .tar.gz (scripts/linux-desktop-tarball.sh); windows-desktop builds the .exe (the
+# ICO is embedded as a resource by tauri-build) and zips it; the macOS job (manual dispatch only) packs an
+# unsigned, ad-hoc signed Artificer.app (scripts/macos-app.sh). bundle.active stays false: no AppImage/.deb/MSI.
+# Each desktop job also runs the desktop Rust tests (cargo test -p artificer-desktop) and the window's node
+# tests (desktop/tests/*.test.cjs) on its own OS.
+# The desktop is built from a real copy of the checkout at a neutral path (/tmp/artificer on Linux and macOS,
+# C:\artificer on Windows): Tauri's generate_context! in dev mode embeds the desktop config dir as a string
+# (tauri-codegen 2.7.4 context.rs:423-426), which --remap-path-prefix does not touch, so building in the
+# workspace would put the runner's checkout path (with the repository name) into the binaries.
+#
+# Toolchain is pinned to 1.100.0 (not floating stable) to match the local Linux release build
+# (rustc 1.100.0 (0ef1bc386 2026-11-09)) and the repo rust-toolchain.toml. RUSTUP_TOOLCHAIN (which
+# takes precedence over rust-toolchain.toml) plus `rustup default` keep cargo/rustc on it.
+#
+# Release path remap (same targets as the local Linux build), applied in a step from the
+# runner's real paths so prefixes match exactly (Linux/macOS: scripts/ci-remap.sh; Windows:
+# scripts/ci-remap.ps1, including the backslash form). Both append to the job's RUSTFLAGS:
+#   $CARGO_HOME/registry/src  -> /cargo/registry/src
+#   $RUSTUP_HOME              -> /rustup
+#   ${{ github.workspace }}   -> /artificer
+#
+# Cargo.lock is committed, so every job builds with --locked.
+
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  linux:
+    name: Linux x86_64 (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: "1.100.0"
+      RUSTFLAGS: "-C target-cpu=x86-64-v3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          rustc -vV
+          cargo -vV
+      - name: Set remap path prefixes
+        shell: bash
+        env:
+          REMAP_WORKSPACE: ${{ github.workspace }}
+        run: bash scripts/ci-remap.sh
+      - name: Build (release)
+        shell: bash
+        run: cargo build --release --locked -p artificer-cli
+      - name: Test (release, default workspace members)
+        shell: bash
+        run: cargo test --release --locked
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artificer-linux-x86_64-v3-cpu
+          path: target/release/artificer
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows x86_64 (CPU)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: "1.100.0"
+      RUSTFLAGS: "-C target-cpu=x86-64-v3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          rustc -vV
+          cargo -vV
+      - name: Set remap path prefixes
+        shell: pwsh
+        env:
+          REMAP_WORKSPACE: ${{ github.workspace }}
+        run: ./scripts/ci-remap.ps1
+      - name: Build (release)
+        shell: bash
+        run: cargo build --release --locked -p artificer-cli
+      - name: Test (release, default workspace members)
+        shell: bash
+        run: cargo test --release --locked
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artificer-windows-x86_64-v3-cpu
+          path: target/release/artificer.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  linux-cuda:
+    name: Linux x86_64 (--features cuda, compile only)
+    # Compile check only: no CUDA toolkit, no GPU, no tests executed, no artifact.
+    # CUDA is dlopen'd at runtime (crates/core/src/backend/cuda.rs, cuda_quant.rs via NVRTC),
+    # and the cuda feature adds no crates and no build script.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: "1.100.0"
+      RUSTFLAGS: "-C target-cpu=x86-64-v3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          rustc -vV
+          cargo -vV
+      - name: Set remap path prefixes
+        shell: bash
+        env:
+          REMAP_WORKSPACE: ${{ github.workspace }}
+        run: bash scripts/ci-remap.sh
+      - name: Build (release, cuda feature)
+        shell: bash
+        run: cargo build --release --locked -p artificer-cli --features cuda
+      - name: Compile tests (cuda feature, not run)
+        shell: bash
+        run: cargo test --release --locked --features cuda --no-run
+
+  linux-desktop:
+    name: Linux x86_64 desktop app (tar.gz)
+    # Pinned to 22.04 (not -latest): the binary then needs only glibc 2.35 and the 22.04 WebKitGTK 4.1 ABI.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: "1.100.0"
+      RUSTFLAGS: "-C target-cpu=x86-64-v3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Copy the checkout to a neutral path (/tmp/artificer)
+        shell: bash
+        # A real copy, not a symlink: paths the build embeds must not contain the checkout path.
+        run: |
+          rm -rf /tmp/artificer && mkdir -p /tmp/artificer && cp -a "$GITHUB_WORKSPACE/." /tmp/artificer/
+          test -f /tmp/artificer/Cargo.toml && test -d /tmp/artificer/.git
+      - name: Toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          rustc -vV
+          cargo -vV
+      - name: System libraries for Tauri 2 (GTK 3, WebKitGTK 4.1)
+        shell: bash
+        # webkit2gtk-sys/javascriptcore-rs-sys/soup3-sys -> libwebkit2gtk-4.1-dev, libjavascriptcoregtk-4.1-dev,
+        # libsoup-3.0-dev; gtk-sys/gdk-sys/atk-sys/pango-sys/gdk-pixbuf-sys/x11 -> libgtk-3-dev; libdbus-sys (tao)
+        # -> libdbus-1-dev; librsvg2-dev for GTK SVG icon loading; pkg-config + build-essential for the -sys builds.
+        # No tray or global-shortcut feature is enabled, so no libayatana-appindicator3-dev / libxdo-dev.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-3-dev \
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev librsvg2-dev libdbus-1-dev
+          ldd --version | head -n 1
+      - name: Set remap path prefixes
+        working-directory: /tmp/artificer
+        shell: bash
+        env:
+          REMAP_WORKSPACE: /tmp/artificer
+        run: bash scripts/ci-remap.sh
+      - name: Build desktop app (release)
+        working-directory: /tmp/artificer
+        shell: bash
+        run: |
+          echo "RUSTFLAGS=$RUSTFLAGS"
+          cargo build --release --locked -p artificer-desktop
+      - name: Test desktop app (release)
+        working-directory: /tmp/artificer
+        shell: bash
+        run: cargo test --release --locked -p artificer-desktop
+      - name: Test desktop window scripts (node --test)
+        working-directory: /tmp/artificer
+        shell: bash
+        # No setup-node: GitHub-hosted runners ship Node, and the tests use only node:test/node:assert.
+        # Files listed by the shell glob, so this works on every Node with --test (18+), not just 21+ globbing.
+        run: |
+          node --version
+          node --test desktop/tests/*.test.cjs
+      - name: Pack tar.gz
+        working-directory: /tmp/artificer
+        shell: bash
+        run: bash scripts/linux-desktop-tarball.sh target/release/artificer-desktop target/linux-desktop
+      - name: Check linkage (system GTK/WebKitGTK, no bundled .so)
+        working-directory: /tmp/artificer
+        shell: bash
+        run: |
+          ldd target/release/artificer-desktop
+          ldd target/release/artificer-desktop | grep -E 'lib(gtk-3|webkit2gtk-4\.1|javascriptcoregtk-4\.1|soup-3\.0)\.so' \
+            | grep -v 'not found' | grep -c '=> /' | grep -qx 4
+          if tar -tzf target/linux-desktop/artificer-*-linux-x86_64-desktop.tar.gz | grep -E '\.so(\.|$)'; then
+            echo "error: the tarball bundles shared libraries"; exit 1
+          fi
+          echo "GTK 3 / WebKitGTK 4.1 / JavaScriptCore / libsoup 3 resolve to system libraries; no .so in the tarball"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artificer-linux-x86_64-desktop
+          path: /tmp/artificer/target/linux-desktop/artificer-*-linux-x86_64-desktop.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  windows-desktop:
+    name: Windows x86_64 desktop app (.exe)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: "1.100.0"
+      RUSTFLAGS: "-C target-cpu=x86-64-v3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Copy the checkout to a neutral path (C:\artificer)
+        shell: pwsh
+        # A real copy, not a symlink: paths the build embeds must not contain the checkout path.
+        # robocopy copies hidden items (.git, .cargo) too; exit codes 0-7 mean success, 8+ failure.
+        run: |
+          $dst = 'C:\artificer'
+          if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
+          robocopy $env:GITHUB_WORKSPACE $dst /E /COPY:DAT /R:1 /W:1 /NFL /NDL /NP
+          if ($LASTEXITCODE -ge 8) { Write-Error "robocopy failed with exit code $LASTEXITCODE"; exit 1 }
+          if (-not (Test-Path "$dst\Cargo.toml") -or -not (Test-Path "$dst\.git")) { Write-Error "copy incomplete"; exit 1 }
+          exit 0
+      - name: Toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          rustc -vV
+          cargo -vV
+      - name: Set remap path prefixes
+        working-directory: C:\artificer
+        shell: pwsh
+        env:
+          REMAP_WORKSPACE: C:\artificer
+        run: ./scripts/ci-remap.ps1
+      - name: Build desktop app (release)
+        working-directory: C:\artificer
+        shell: bash
+        # tauri-build embeds desktop/icons/icon.ico (16/32/48/256) as the exe's icon resource.
+        run: |
+          echo "RUSTFLAGS=$RUSTFLAGS"
+          cargo build --release --locked -p artificer-desktop
+      - name: Test desktop app (release)
+        working-directory: C:\artificer
+        shell: bash
+        run: cargo test --release --locked -p artificer-desktop
+      - name: Test desktop window scripts (node --test)
+        working-directory: C:\artificer
+        shell: bash
+        # No setup-node: GitHub-hosted runners ship Node, and the tests use only node:test/node:assert.
+        # Files listed by the shell glob, so this works on every Node with --test (18+), not just 21+ globbing.
+        run: |
+          node --version
+          node --test desktop/tests/*.test.cjs
+      - name: Stage zip contents
+        working-directory: C:\artificer
+        shell: bash
+        # The Windows checkout converts text files to CRLF (the runner's git has core.autocrlf=true), so the
+        # text files are written from the committed blobs instead of the working tree: LF, byte-identical to the
+        # repo. Each copy is checked against its blob id.
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' desktop/Cargo.toml | head -n 1)
+          name="artificer-$version-windows-x86_64-desktop"
+          stage="target/windows-desktop/$name"
+          mkdir -p "$stage"
+          cp target/release/artificer-desktop.exe "$stage/"
+          for f in README.md LICENSE-APACHE LICENSE-MIT THIRD-PARTY-NOTICES.md; do
+            git cat-file blob "HEAD:$f" > "$stage/$f"
+            want=$(git rev-parse "HEAD:$f")
+            got=$(git hash-object --no-filters "$stage/$f")
+            [ "$got" = "$want" ] || { echo "error: $f differs from HEAD:$f ($got != $want)"; exit 1; }
+            if grep -q $'\r' "$stage/$f"; then echo "error: CR in $f"; exit 1; fi
+            echo "$f: blob $got, LF only"
+          done
+          echo "ZIP_NAME=$name" >> "$GITHUB_ENV"
+      - name: Pack zip
+        working-directory: C:\artificer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Compress-Archive -Path "target/windows-desktop/$env:ZIP_NAME" -DestinationPath "target/windows-desktop/$env:ZIP_NAME.zip" -Force
+          Get-ChildItem -Recurse target/windows-desktop | Select-Object FullName, Length | Format-Table -AutoSize
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artificer-windows-x86_64-desktop
+          path: C:/artificer/target/windows-desktop/artificer-*-windows-x86_64-desktop.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  macos:
+    name: macOS aarch64 (CPU, manual only)
+    # macOS runner minutes are billed at 10x: run only when started by hand.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: "1.100.0"
+      RUSTFLAGS: "-C target-cpu=apple-m1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          rustc -vV
+          cargo -vV
+      - name: Set remap path prefixes
+        shell: bash
+        env:
+          REMAP_WORKSPACE: ${{ github.workspace }}
+        run: bash scripts/ci-remap.sh
+      - name: Build (release)
+        shell: bash
+        run: cargo build --release --locked -p artificer-cli
+      - name: Test (release, default workspace members)
+        shell: bash
+        run: cargo test --release --locked
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artificer-macos-aarch64-cpu
+          path: target/release/artificer
+          if-no-files-found: error
+          retention-days: 7
+      - name: Copy the checkout to a neutral path (/tmp/artificer)
+        shell: bash
+        # A real copy, not a symlink: paths the build embeds must not contain the checkout path. The CLI steps
+        # above already filled target/ in the workspace; it is left out (its build paths point at the workspace).
+        run: |
+          rm -rf /tmp/artificer && mkdir -p /tmp/artificer
+          tar -C "$GITHUB_WORKSPACE" --exclude=./target -cf - . | tar -C /tmp/artificer -xf -
+          test -f /tmp/artificer/Cargo.toml && test -d /tmp/artificer/.git && test ! -e /tmp/artificer/target
+      - name: Set remap path prefixes (desktop, neutral copy)
+        working-directory: /tmp/artificer
+        shell: bash
+        env:
+          REMAP_WORKSPACE: /tmp/artificer
+        # Appends to the RUSTFLAGS the CLI steps already use (cargo registry, rustup and workspace remaps), so
+        # those flags repeat; identical repeats are harmless. /tmp is a symlink to /private/tmp on macOS and cargo
+        # sees the physical path, so that path is remapped to /artificer as well.
+        run: |
+          bash scripts/ci-remap.sh
+          phys="$(pwd -P)"
+          if [ "$phys" != "/tmp/artificer" ]; then
+            flags="$(grep '^RUSTFLAGS=' "$GITHUB_ENV" | tail -n 1 | cut -d= -f2-)"
+            echo "RUSTFLAGS=$flags --remap-path-prefix=$phys=/artificer" >> "$GITHUB_ENV"
+            echo "Also remapping $phys"
+          fi
+      - name: Build desktop app (release)
+        working-directory: /tmp/artificer
+        shell: bash
+        run: cargo build --release --locked -p artificer-desktop
+      - name: Test desktop app (release)
+        working-directory: /tmp/artificer
+        shell: bash
+        run: cargo test --release --locked -p artificer-desktop
+      - name: Test desktop window scripts (node --test)
+        working-directory: /tmp/artificer
+        shell: bash
+        # No setup-node: GitHub-hosted runners ship Node, and the tests use only node:test/node:assert.
+        # Files listed by the shell glob, so this works on every Node with --test (18+), not just 21+ globbing.
+        run: |
+          node --version
+          node --test desktop/tests/*.test.cjs
+      - name: Assemble Artificer.app (unsigned, ad-hoc codesign)
+        working-directory: /tmp/artificer
+        shell: bash
+        run: bash scripts/macos-app.sh target/release/artificer-desktop target/macos-app
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artificer-macos-aarch64-desktop
+          path: /tmp/artificer/target/macos-app/artificer-*-macos-aarch64-desktop.zip
+          if-no-files-found: error
+          retention-days: 7

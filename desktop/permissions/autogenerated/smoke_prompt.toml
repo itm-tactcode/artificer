@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-smoke-prompt"
+description = "Enables the smoke_prompt command without any pre-configured scope."
+commands.allow = ["smoke_prompt"]
+
+[[permission]]
+identifier = "deny-smoke-prompt"
+description = "Denies the smoke_prompt command without any pre-configured scope."
+commands.deny = ["smoke_prompt"]

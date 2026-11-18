@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Artificer
+Comment=Local LLM inference (GGUF)
+Exec=artificer-desktop
+Icon=artificer
+StartupWMClass=Artificer-desktop
+Terminal=false
+Categories=Development;

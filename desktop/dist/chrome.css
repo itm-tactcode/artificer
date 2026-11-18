@@ -1,0 +1,436 @@
+/* Chrome styles for the Artificer desktop window.
+   Token values copied from the Artificer website stylesheet (:root and body).
+   Do not @import site.css. This file is self-contained. */
+
+:root {
+  --bg: #05070a;
+  --bg-elevated: #0a0c10;
+  --bg-card: #0e1218;
+  --bg-card-hover: #121820;
+  --border: #1a2230;
+  --border-cyan: rgba(0, 229, 255, 0.35);
+  --text: #e8eef4;
+  --text-muted: #8b97a8;
+  --text-dim: #5c6778;
+  --cyan: #00e5ff;
+  --cyan-soft: #67f0ff;
+  --cyan-dim: rgba(0, 229, 255, 0.12);
+  --blue: #3b82f6;
+  --warn: #f0b429;
+  --radius: 10px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { color-scheme: dark; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 229, 255, 0.07), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(59, 130, 246, 0.05), transparent 50%),
+    var(--bg);
+}
+
+.stage {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+}
+
+.window {
+  width: min(100%, 720px);
+  height: min(640px, calc(100vh - 4rem));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.04);
+  overflow: hidden;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 44px;
+  padding: 0.55rem 0.85rem;
+  background: rgba(5, 7, 10, 0.85);
+  border-bottom: 1px solid var(--border);
+}
+
+.titlebar-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.titlebar-glyphs {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.titlebar-glyphs span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.health {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.85rem;
+  padding: 0.45rem 0.85rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.health-label {
+  color: var(--cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.health-pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.55);
+  flex-shrink: 0;
+}
+
+.weights {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 36px;
+  padding: 0.35rem 0.85rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.weights-label {
+  flex: 0 0 auto;
+  color: var(--cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.weights-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.weights-change {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.15rem 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cyan-soft);
+  background: transparent;
+  border: 1px solid var(--border-cyan);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* Backend badge in the Weights row. Existing tokens only: cyan border/text like
+   .weights-change; fallback uses --warn (the palette's only amber). */
+.backend-badge {
+  flex: 0 0 auto;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.1rem 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: var(--cyan-soft);
+  background: var(--cyan-dim);
+  border: 1px solid var(--border-cyan);
+  border-radius: 8px;
+}
+
+.backend-badge[data-tone="cpu"] {
+  color: var(--text-muted);
+  background: transparent;
+  border-color: var(--border);
+}
+
+.backend-badge[data-tone="fallback"] {
+  color: var(--warn);
+  background: transparent;
+  border-color: var(--warn);
+}
+
+.backend-badge[data-tone="unknown"] {
+  color: var(--text-dim);
+  background: transparent;
+  border-color: var(--border);
+}
+
+/* Live / final tok/s readout. Takes the place of the "Still arriving" label once tokens flow. */
+.stream-rate {
+  font-variant-numeric: tabular-nums;
+}
+
+.transcript {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 1rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.turn {
+  max-width: 36rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.9rem;
+  background: var(--bg-elevated);
+}
+
+.turn-user {
+  align-self: flex-end;
+  background: var(--bg-card-hover);
+}
+
+.turn-assistant {
+  align-self: flex-start;
+  border-left: 3px solid var(--cyan);
+}
+
+.turn-role {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.turn-assistant .turn-role { color: var(--cyan-soft); }
+
+.turn p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Collapsible thinking section above the answer. Existing tokens only: muted text, the --border rule.
+   Header is a real <button>; text chevron ▸/▾. Body hidden until opened. */
+.thinking {
+  margin-bottom: 0.4rem;
+}
+
+.thinking-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  width: 100%;
+  margin: 0;
+  padding: 0.1rem 0;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  text-align: left;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.thinking-toggle:hover { color: var(--text); }
+
+.thinking-toggle:focus-visible {
+  outline: 1px solid var(--border-cyan);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.thinking-chevron {
+  flex: 0 0 auto;
+  width: 1em;
+}
+
+.thinking-body {
+  margin: 0.25rem 0 0.15rem;
+  padding: 0.1rem 0 0.1rem 0.7rem;
+  max-height: 240px;
+  overflow-y: auto;
+  border-left: 2px solid var(--border);
+  font-size: 0.855rem; /* 0.9 × the 0.95rem reply */
+  line-height: 1.55;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.thinking-body[hidden] { display: none; }
+
+/* One line under the reply after the stream ends. Length limit uses the existing
+   --warn token as a 2px rule on muted text; "Stopped by you." uses the --border rule.
+   Never red. Errors use the same row (see data-reason="error"). */
+.turn p.stream-notice {
+  margin-top: 0.45rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--warn);
+  font-size: 0.855rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: normal;
+}
+
+.turn p.stream-notice[data-reason="user"] {
+  border-left-color: var(--border);
+}
+
+/* Error notice: same row; rule is --warn (the sheet has no error token; never red).
+   Detail line is the server's message in muted mono. No readout. */
+.turn p.stream-notice[data-reason="error"] {
+  border-left-color: var(--warn);
+  color: var(--text);
+}
+
+.stream-notice-detail {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.stream-note {
+  display: block;
+  margin-top: 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.caret {
+  display: inline-block;
+  width: 0.45em;
+  height: 0.95em;
+  margin-left: 0.12em;
+  vertical-align: text-bottom;
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.55);
+  animation: caret-blink 1s steps(1) infinite;
+}
+
+@keyframes caret-blink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret { animation: none; }
+}
+
+.composer {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  padding: 0.75rem 0.85rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.composer textarea {
+  flex: 1 1 auto;
+  resize: none;
+  min-height: 44px;
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.composer textarea::placeholder {
+  color: var(--text-dim);
+}
+
+/* Fixed width that fits the longest label ("Stopping…"), so the input never
+   shifts between Send / Stop / Stopping…. */
+.composer-send {
+  flex: 0 0 auto;
+  width: 6.75rem;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 0.5rem;
+  white-space: nowrap;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bg);
+  background: var(--cyan);
+  border: 1px solid var(--cyan);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* Disabled (e.g. "Stopping…"): no cyan fill; existing border/dim tokens. */
+.composer-send:disabled {
+  color: var(--text-dim);
+  background: transparent;
+  border-color: var(--border);
+  cursor: default;
+}
+
+/* Empty-state addendum (empty-state.css) gives these a display value, which would beat the
+   [hidden] attribute app.js toggles; keep hidden meaning hidden. */
+.weights-pathrow[hidden],
+.weights-status[hidden],
+.weights-error[hidden],
+.backend-badge[hidden],
+.health-note[hidden],
+.empty-state[hidden],
+.empty-state-detail[hidden],
+.empty-state-action[hidden],
+[data-health-endpoint][hidden] {
+  display: none;
+}

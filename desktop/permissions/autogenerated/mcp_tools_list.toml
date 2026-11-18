@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mcp-tools-list"
+description = "Enables the mcp_tools_list command without any pre-configured scope."
+commands.allow = ["mcp_tools_list"]
+
+[[permission]]
+identifier = "deny-mcp-tools-list"
+description = "Denies the mcp_tools_list command without any pre-configured scope."
+commands.deny = ["mcp_tools_list"]
