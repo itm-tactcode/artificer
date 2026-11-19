@@ -120,6 +120,8 @@ enum Commands {
         model: PathBuf,
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
+        #[command(flatten)]
+        security: ServeSecurityArgs,
         #[arg(long, default_value_t = 8080)]
         port: u16,
         /// Model id returned by `/v1/models` and completions.
@@ -295,6 +297,7 @@ fn run() -> Result<()> {
         Commands::Serve {
             model,
             host,
+            security,
             port,
             model_id,
             ctx,
@@ -303,7 +306,7 @@ fn run() -> Result<()> {
             backend,
             cpu_fallback,
             experimental_moe,
-        } => cmd_serve(
+        } => cmd_serve_with_security(
             model,
             host,
             port,
@@ -316,6 +319,7 @@ fn run() -> Result<()> {
                 cpu_fallback || env_cpu_fallback(),
                 experimental_moe,
             )?,
+            security,
         ),
         Commands::Mcp {
             model,
@@ -710,12 +714,110 @@ fn cmd_bench(
     Ok(())
 }
 
+/// CLI security settings for `serve`. Environment is read only here, not by library callers
+/// (so embedded servers and tests keep their explicit defaults).
+///
+/// `api_key` is a raw `String` so clap does not parse it through [`artificer_server::ApiKey`]'s
+/// `FromStr` (that error path echoes the value). Validation happens in [`ServeSecurityArgs::apply`].
+#[derive(clap::Args, Default)]
+struct ServeSecurityArgs {
+    /// Extra Host names (comma-separated), added to loopback defaults. `*` disables the
+    /// Host check. Also ARTIFICER_ALLOWED_HOSTS.
+    #[arg(long, value_name = "HOSTS")]
+    allowed_hosts: Option<String>,
+    /// Extra Origin values (comma-separated), added to loopback defaults. `*` disables
+    /// the Origin check. Also ARTIFICER_ALLOWED_ORIGINS.
+    #[arg(long, value_name = "ORIGINS")]
+    allowed_origins: Option<String>,
+    /// Require Authorization: Bearer on every route except GET /health. Also ARTIFICER_API_KEY.
+    #[arg(long, value_name = "KEY")]
+    api_key: Option<String>,
+    /// Allow a non-loopback --host without an API key (unsafe on an untrusted network).
+    #[arg(long)]
+    allow_insecure_bind: bool,
+}
+
+impl std::fmt::Debug for ServeSecurityArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServeSecurityArgs")
+            .field("allowed_hosts", &self.allowed_hosts)
+            .field("allowed_origins", &self.allowed_origins)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("allow_insecure_bind", &self.allow_insecure_bind)
+            .finish()
+    }
+}
+
+impl ServeSecurityArgs {
+    fn apply(self, cfg: &mut ServerConfig) -> Result<()> {
+        let env = |name: &str| -> Result<Option<String>> {
+            match std::env::var(name) {
+                Ok(v) => Ok(Some(v)),
+                Err(std::env::VarError::NotPresent) => Ok(None),
+                Err(std::env::VarError::NotUnicode(_)) => {
+                    Err(anyhow::anyhow!("{name} must be valid UTF-8"))
+                }
+            }
+        };
+        let list = |v: Option<String>| -> Vec<String> {
+            v.unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect()
+        };
+        cfg.allowed_hosts = list(match self.allowed_hosts {
+            Some(v) => Some(v),
+            None => env("ARTIFICER_ALLOWED_HOSTS")?,
+        });
+        cfg.allowed_origins = list(match self.allowed_origins {
+            Some(v) => Some(v),
+            None => env("ARTIFICER_ALLOWED_ORIGINS")?,
+        });
+        cfg.api_key =
+            match self.api_key {
+                Some(v) => Some(v.parse::<artificer_server::ApiKey>().map_err(|e| {
+                    anyhow::anyhow!("{}", e.replacen("the API key", "--api-key", 1))
+                })?),
+                None => match env("ARTIFICER_API_KEY")? {
+                    None => None,
+                    Some(v) => Some(v.parse::<artificer_server::ApiKey>().map_err(|e| {
+                        anyhow::anyhow!("{}", e.replacen("the API key", "ARTIFICER_API_KEY", 1))
+                    })?),
+                },
+            };
+        cfg.allow_insecure_bind = self.allow_insecure_bind;
+        Ok(())
+    }
+}
+
+// Keep the no-extra-options entry point for the existing bind-first CLI tests.
+#[cfg(test)]
 fn cmd_serve(
     path: PathBuf,
     host: String,
     port: u16,
     model_id: Option<String>,
     opts: EngineLoadOptions,
+) -> Result<()> {
+    cmd_serve_with_security(
+        path,
+        host,
+        port,
+        model_id,
+        opts,
+        ServeSecurityArgs::default(),
+    )
+}
+
+fn cmd_serve_with_security(
+    path: PathBuf,
+    host: String,
+    port: u16,
+    model_id: Option<String>,
+    opts: EngineLoadOptions,
+    security: ServeSecurityArgs,
 ) -> Result<()> {
     let model_id = model_id.unwrap_or_else(|| default_model_id(&path));
     let mut cfg = ServerConfig {
@@ -725,6 +827,7 @@ fn cmd_serve(
         model_id,
         ..ServerConfig::default()
     };
+    security.apply(&mut cfg)?;
     // Stash load opts via environment-less path: ServerConfig extension.
     cfg.load_opts = Some(opts);
     match serve_blocking(cfg) {

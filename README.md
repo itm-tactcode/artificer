@@ -27,13 +27,21 @@ Repository: <https://github.com/itm-tactcode/artificer>
 - MCP over stdio (`artificer mcp`), tools `chat` and `complete`
 - `artificer perplexity`: same method as llama.cpp `llama-perplexity` (default mode, pinned `8642541b`)
 
-## New in 0.1.0
+## New in 0.1.1
 
-0.1.0 is the first release. It ships:
+0.1.1 is a security update for the local server (`artificer serve` and the server the desktop app starts). The server
+now checks the `Host` and `Origin` headers, requires `Content-Type: application/json` on every `POST`, can require an
+API key (`--api-key` / `ARTIFICER_API_KEY`), and no longer includes file paths or model file content in model load
+errors. A non-loopback `--host` no longer starts without a key unless you pass `--allow-insecure-bind`. Some changes can break existing setups; see the
+[0.1.1 release notes](https://github.com/itm-tactcode/artificer/releases/tag/v0.1.1) and [SECURITY.md](SECURITY.md).
+
+### 0.1.0
+
+0.1.0 was the first release. It shipped:
 
 - the `artificer` CLI (`run`, `bench`, `perplexity`, `serve`, `mcp`) for Linux x86_64, Windows x86_64 and macOS
   aarch64. Linux CUDA is the only GPU build in 0.1.0; the Windows and macOS downloads run on the CPU.
-- the desktop app (Tauri 2) as a download for all three OS. It is new in 0.1.0, runs on the CPU and starts its own
+- the desktop app (Tauri 2) as a download for all three OS. It was new in 0.1.0; it runs on the CPU and starts its own
   local server (or reuses an `artificer serve` already running on port 8080); see [Install a release binary](#install-a-release-binary) for what each OS needs.
 
 Please report bugs and problems in the repository's GitHub issues:
@@ -95,7 +103,9 @@ the flag the model is refused with:
 
 `run`, `bench` and `perplexity` prefix that with ``failed to load model `<path>`:``, so the line on stderr is
 ``error: failed to load model `<path>`: `olmoe` is an MoE model; ...``. `POST /v1/models/load` returns
-`failed to load model: <text>`. For Qwen1.5-MoE the warning and the refusal name `qwen2moe` instead of `olmoe`,
+`failed to load model: <text>`; any other load failure (a damaged or non-GGUF file) returns only `This file couldn't
+be loaded. It may be damaged or not a supported GGUF model.`, with the details in the server log. For Qwen1.5-MoE
+the warning and the refusal name `qwen2moe` instead of `olmoe`,
 e.g. `` `qwen2moe` is an MoE model; MoE support is experimental: pass --experimental-moe to load it ``. Other MoE
 architectures (`qwen3moe`, `deepseek2`, `deepseek` with `expert_count`) are still rejected at load. **CUDA refuses MoE
 models (`olmoe` and `qwen2moe`) with or without the flag**; its error ends with
@@ -129,7 +139,7 @@ How the target CPU is set:
 | Windows x86_64 | Built and tested by CI only; **not verified on a Windows machine**. RAM is detected (total and available), so `--ctx` is shrunk to fit RAM as on Linux; peak RSS is Linux-only, so `bench` reports no RSS | **Not supported** (the CUDA loader looks for Linux `.so` names only) | CPU: build + tests on every push |
 | macOS aarch64 | **Unverified.** No NEON kernels yet, so the CPU kernels are scalar. RAM is detected (total only, so `--ctx` is fitted to total RAM); peak RSS is Linux-only, as on Windows | **Not supported** (no CUDA, no Metal) | Build + tests on **manual dispatch only**; not run on the current commit |
 | Other (Linux aarch64, macOS x86_64, 32-bit) | Not built or tested | - | none |
-| Desktop app (`desktop/`, Tauri 2) | Release download on all three OS: Linux x86_64 `.tar.gz` (Ubuntu 22.04+ with WebKitGTK 4.1), Windows x86_64 `.exe` (WebView2), macOS aarch64 unsigned `Artificer.app`. New in 0.1.0 | - (talks to `artificer serve`, which picks the backend) | Linux: build + desktop tests + `.tar.gz` on every push (Ubuntu 22.04 runner). Windows: build + zip on every push. macOS: `Artificer.app` on manual dispatch only |
+| Desktop app (`desktop/`, Tauri 2) | Release download on all three OS: Linux x86_64 `.tar.gz` (Ubuntu 22.04+ with WebKitGTK 4.1), Windows x86_64 `.exe` (WebView2), macOS aarch64 unsigned `Artificer.app`. Added in 0.1.0 | - (talks to `artificer serve`, which picks the backend) | Linux: build + desktop tests + `.tar.gz` on every push (Ubuntu 22.04 runner). Windows: build + zip on every push. macOS: `Artificer.app` on manual dispatch only |
 
 **CUDA is loaded at run time.** The `cuda` feature adds no crates and no build script: `libcudart`, `libcublas`,
 NVRTC and the driver are opened with `dlopen`, and the kernels in `crates/core/src/backend/cuda_kernels.cu` are
@@ -140,7 +150,7 @@ Building from source needs Rust and the committed `Cargo.lock`. The toolchain is
 
 ## Install a release binary
 
-0.1.0 ships the `artificer` command-line binary and the desktop app for Linux, Windows and macOS. Linux CUDA is the only GPU build; the Windows and macOS downloads run on the CPU. Each release has one CLI binary and one desktop download per platform and a `SHA256SUMS` file with the SHA256 checksum of every asset. The
+Current releases ship the `artificer` command-line binary and the desktop app for Linux, Windows and macOS. Linux CUDA is the only GPU build; the Windows and macOS downloads run on the CPU. Each release has one CLI binary and one desktop download per platform and a `SHA256SUMS` file with the SHA256 checksum of every asset. The
 release notes record each asset's source commit, Rust toolchain (`rustc -V`) and checksum.
 
 - **Where the assets come from:** the Linux CLI binary is built locally with the optional `cuda` feature. The Windows
@@ -171,7 +181,7 @@ Get-FileHash .\<file> -Algorithm SHA256       # Windows: compare Hash with SHA25
 - **Windows (SmartScreen):** on the "Windows protected your PC" screen, click **More info**, then **Run anyway**.
 - **Linux:** `chmod +x <file>`; there is no signature check.
 
-**Desktop app.** The desktop app (Tauri 2, `desktop/`) is a release download on all three OS. In 0.1.0 it runs on
+**Desktop app.** The desktop app (Tauri 2, `desktop/`) is a release download on all three OS. It runs on
 the CPU only and starts its own local server: pick (or paste the path of) a `.gguf` file and the app runs the Artificer
 server inside the app, on a free port on `127.0.0.1`, with that file; it stops that server when you quit. You do not
 need to start `artificer serve` first. If an Artificer server with a model loaded already answers on
@@ -232,7 +242,7 @@ The binary is `target/release/artificer`. Local install (Linux): `scripts/instal
 artificer inspect    <MODEL> [--metadata] [--tensors]       GGUF header, metadata, tensor inventory
 artificer run        <MODEL> -p <PROMPT> [options]          one-shot generation (chat template applied; --raw skips it)
 artificer bench      <MODEL> [-p PROMPT] [--runs N] [--warmup N]   prefill / decode tok/s and peak RSS
-artificer serve      <MODEL> [--host H] [--port P] [--model-id ID] [--cpu-fallback]   OpenAI-compatible HTTP + MCP at POST /mcp
+artificer serve      <MODEL> [--host H] [--port P] [--model-id ID] [--cpu-fallback] [--api-key KEY]   OpenAI-compatible HTTP + MCP at POST /mcp
 artificer mcp        <MODEL> [--model-id ID]                MCP over stdio (JSON-RPC, newline-delimited; logs on stderr)
 artificer perplexity <MODEL> -f <FILE> [-c N] [--chunks N] [-t N]   perplexity, llama-perplexity method
 ```
@@ -250,6 +260,13 @@ Shared options (see `artificer <command> --help`):
 - `bench`: `--max-tokens` (default 64)
 - `serve --cpu-fallback` (or `ARTIFICER_CPU_FALLBACK=1`): if CUDA cannot start, serve on the CPU and report
   `fallback_reason` in `GET /health`
+- `serve --api-key KEY` (or `ARTIFICER_API_KEY`): require `Authorization: Bearer KEY` on every route except
+  `GET /health`. A non-loopback `--host` (`0.0.0.0`, `::`, a hostname) without a key is refused unless you pass
+  `--allow-insecure-bind`
+- `serve --allowed-hosts H1,H2` / `--allowed-origins O1,O2` (or `ARTIFICER_ALLOWED_HOSTS` /
+  `ARTIFICER_ALLOWED_ORIGINS`): extra `Host` / `Origin` values to accept; `*` turns that check off. By default only
+  loopback names on the server's own port, and no `Origin` or a loopback one, are accepted, and every `POST` must be
+  `Content-Type: application/json`. See [SECURITY.md](SECURITY.md)
 
 `perplexity` needs a file of at least 2 × `-c` tokens. It scores the second half of each chunk and prints
 `[k]ppl,` per chunk and `Final estimate: PPL = X +/- Y`.
@@ -298,7 +315,8 @@ Scripted walkthroughs:
 - `scripts/demo-serve.sh path/to/your-model.gguf` + `scripts/demo-smoke.sh`: start a loopback server and smoke-test
   health, streaming chat and MCP. See [DEMO.md](DEMO.md).
 
-The server binds to loopback by default and has no auth or TLS. Read [SECURITY.md](SECURITY.md) before exposing it.
+The server binds to loopback by default, accepts only loopback `Host` and `Origin` values, and has optional API-key
+auth (`--api-key`) but no TLS. Read [SECURITY.md](SECURITY.md) before exposing it.
 
 ## Performance
 

@@ -9,6 +9,7 @@
 //! - `complete` — single-prompt completion
 
 use std::io::{BufRead, BufReader, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use artificer_runtime::{Engine, GenerateConfig};
@@ -22,8 +23,8 @@ use serde_json::{json, Value};
 use crate::api_types::ChatMessage;
 use crate::error::{err_response, Result, ServerError};
 use crate::metrics::ServerMetrics;
-use crate::prompt::messages_to_prompt;
-use crate::routes::AppState;
+use crate::prompt::{messages_to_prompt, total_content_chars};
+use crate::routes::{AppState, CancelOnDrop};
 use crate::tools::ToolMode;
 
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -309,6 +310,8 @@ fn call_chat(state: &McpState, args: &Value) -> std::result::Result<String, Stri
         return Err(format!("too many messages (max {})", state.max_messages));
     }
 
+    check_prompt_size(&raw, state.max_prompt_chars)?;
+
     let cfg = gen_cfg_from_args(args, state.max_tokens);
     let mut engine = state
         .engine
@@ -342,12 +345,7 @@ fn call_complete(state: &McpState, args: &Value) -> std::result::Result<String, 
     if prompt_text.is_empty() {
         return Err("prompt must not be empty".into());
     }
-    if prompt_text.len() > state.max_prompt_chars {
-        return Err(format!(
-            "prompt too large (max {} chars)",
-            state.max_prompt_chars
-        ));
-    }
+    check_prompt_len(prompt_text.len(), state.max_prompt_chars)?;
 
     let messages = vec![ChatMessage {
         role: "user".into(),
@@ -523,8 +521,25 @@ pub async fn mcp_http(State(state): State<Arc<AppState>>, body: String) -> Respo
     };
 
     let method = req.method.clone();
+    let cancel = Arc::new(AtomicBool::new(false));
+    // Dropping this handler future (a hung-up HTTP client) stops the blocking generation.
+    let _hangup = CancelOnDrop(Arc::clone(&cancel));
+    // A string JSON-RPC id is also the id accepted by /v1/chat/cancel. Numeric ids use
+    // their JSON representation. Id-less calls still register with an internal id, so
+    // an id-less cancel always works.
+    let generation_id = req.id.as_ref().map_or_else(
+        || format!("mcp-{}", uuid::Uuid::new_v4()),
+        |id| {
+            id.as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| id.to_string())
+        },
+    );
     let state_bg = Arc::clone(&state);
-    let result = tokio::task::spawn_blocking(move || handle_rpc_from_app(&state_bg, req)).await;
+    let result = tokio::task::spawn_blocking(move || {
+        handle_rpc_from_app(&state_bg, req, &generation_id, cancel)
+    })
+    .await;
 
     match result {
         Ok(None) => {
@@ -539,7 +554,12 @@ pub async fn mcp_http(State(state): State<Arc<AppState>>, body: String) -> Respo
     }
 }
 
-fn handle_rpc_from_app(state: &AppState, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
+fn handle_rpc_from_app(
+    state: &AppState,
+    req: JsonRpcRequest,
+    generation_id: &str,
+    cancel: Arc<AtomicBool>,
+) -> Option<JsonRpcResponse> {
     // Bridge tokio Mutex → std-style by blocking_lock for the duration of the call.
     // We implement tools/call specially so we can use AppState's engine mutex.
     let id = req.id.clone();
@@ -558,7 +578,7 @@ fn handle_rpc_from_app(state: &AppState, req: JsonRpcRequest) -> Option<JsonRpcR
         }
         "tools/call" => {
             let params = req.params.unwrap_or(json!({}));
-            Some(tools_call_app(state, id, params))
+            Some(tools_call_app(state, id, params, generation_id, cancel))
         }
         other => {
             if is_notification {
@@ -574,7 +594,13 @@ fn handle_rpc_from_app(state: &AppState, req: JsonRpcRequest) -> Option<JsonRpcR
     }
 }
 
-fn tools_call_app(state: &AppState, id: Option<Value>, params: Value) -> JsonRpcResponse {
+fn tools_call_app(
+    state: &AppState,
+    id: Option<Value>,
+    params: Value,
+    generation_id: &str,
+    cancel: Arc<AtomicBool>,
+) -> JsonRpcResponse {
     let name = match params.get("name").and_then(|v| v.as_str()) {
         Some(n) => n.to_string(),
         None => return JsonRpcResponse::error(id, -32602, "tools/call requires params.name"),
@@ -585,8 +611,8 @@ fn tools_call_app(state: &AppState, id: Option<Value>, params: Value) -> JsonRpc
         .unwrap_or_else(|| json!({}));
 
     let result = match name.as_str() {
-        "chat" => call_chat_app(state, &args),
-        "complete" => call_complete_app(state, &args),
+        "chat" => call_chat_app(state, &args, generation_id, cancel),
+        "complete" => call_complete_app(state, &args, generation_id, cancel),
         other => {
             return JsonRpcResponse::error(id, -32602, format!("Unknown tool: {other}"));
         }
@@ -614,7 +640,25 @@ fn tools_call_app(state: &AppState, id: Option<Value>, params: Value) -> JsonRpc
     }
 }
 
-fn call_chat_app(state: &AppState, args: &Value) -> std::result::Result<String, String> {
+/// The same total-content count as /v1/chat/completions (including tool-call strings).
+fn check_prompt_size(messages: &[ChatMessage], cap: usize) -> std::result::Result<(), String> {
+    check_prompt_len(total_content_chars(messages), cap)
+}
+
+fn check_prompt_len(chars: usize, cap: usize) -> std::result::Result<(), String> {
+    if chars > cap {
+        Err(format!("prompt too large ({chars} chars, max {cap})"))
+    } else {
+        Ok(())
+    }
+}
+
+fn call_chat_app(
+    state: &AppState,
+    args: &Value,
+    generation_id: &str,
+    cancel: Arc<AtomicBool>,
+) -> std::result::Result<String, String> {
     let messages_val = args
         .get("messages")
         .ok_or_else(|| "chat requires arguments.messages".to_string())?;
@@ -629,28 +673,16 @@ fn call_chat_app(state: &AppState, args: &Value) -> std::result::Result<String, 
             state.limits.max_messages
         ));
     }
-
-    let cfg = gen_cfg_from_args(args, state.limits.max_tokens);
-    let mut engine = state.engine.blocking_lock();
-    let prompt = messages_to_prompt(&engine.model().tokenizer, &raw, &[], &ToolMode::None)?;
-
-    let guard = state.metrics.begin_request();
-    match engine.generate_prompt(&prompt.0, &cfg) {
-        Ok(o) => {
-            guard.success(
-                o.prompt_tokens.len() as u64,
-                o.completion_tokens.len() as u64,
-            );
-            Ok(o.text.trim().to_owned())
-        }
-        Err(e) => {
-            guard.fail();
-            Err(e.to_string())
-        }
-    }
+    check_prompt_size(&raw, state.limits.max_prompt_chars)?;
+    generate_app(state, &raw, args, generation_id, cancel)
 }
 
-fn call_complete_app(state: &AppState, args: &Value) -> std::result::Result<String, String> {
+fn call_complete_app(
+    state: &AppState,
+    args: &Value,
+    generation_id: &str,
+    cancel: Arc<AtomicBool>,
+) -> std::result::Result<String, String> {
     let prompt_text = args
         .get("prompt")
         .and_then(|v| v.as_str())
@@ -658,12 +690,7 @@ fn call_complete_app(state: &AppState, args: &Value) -> std::result::Result<Stri
     if prompt_text.is_empty() {
         return Err("prompt must not be empty".into());
     }
-    if prompt_text.len() > state.limits.max_prompt_chars {
-        return Err(format!(
-            "prompt too large (max {} chars)",
-            state.limits.max_prompt_chars
-        ));
-    }
+    check_prompt_len(prompt_text.len(), state.limits.max_prompt_chars)?;
 
     let messages = vec![ChatMessage {
         role: "user".into(),
@@ -672,12 +699,30 @@ fn call_complete_app(state: &AppState, args: &Value) -> std::result::Result<Stri
         tool_call_id: None,
         name: None,
     }];
+    generate_app(state, &messages, args, generation_id, cancel)
+}
+
+/// One cancellable engine operation for either MCP tool. Register only after the engine
+/// lock is held, so cancelling a queued call cannot replace the active generation's flag.
+fn generate_app(
+    state: &AppState,
+    messages: &[ChatMessage],
+    args: &Value,
+    generation_id: &str,
+    cancel: Arc<AtomicBool>,
+) -> std::result::Result<String, String> {
     let cfg = gen_cfg_from_args(args, state.limits.max_tokens);
     let mut engine = state.engine.blocking_lock();
-    let prompt = messages_to_prompt(&engine.model().tokenizer, &messages, &[], &ToolMode::None)?;
+    let _active = state.control.begin(generation_id, Arc::clone(&cancel));
+    let prompt = messages_to_prompt(&engine.model().tokenizer, messages, &[], &ToolMode::None)?;
 
     let guard = state.metrics.begin_request();
-    match engine.generate_prompt(&prompt.0, &cfg) {
+    match engine.generate_prompt_cancellable(
+        &prompt.0,
+        &cfg,
+        |_| {},
+        || cancel.load(Ordering::SeqCst),
+    ) {
         Ok(o) => {
             guard.success(
                 o.prompt_tokens.len() as u64,

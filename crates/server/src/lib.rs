@@ -12,10 +12,13 @@
 mod api_types;
 mod config;
 mod error;
+#[cfg(test)]
+mod hardening_tests;
 mod mcp;
 mod metrics;
 mod prompt;
 mod routes;
+mod security;
 #[cfg(test)]
 #[path = "../../runtime/tests/common/mod.rs"]
 mod test_common;
@@ -32,7 +35,7 @@ use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-pub use config::{RequestLimits, ServerConfig};
+pub use config::{is_loopback_host, ApiKey, RequestLimits, ServerConfig};
 pub use error::{Result, ServerError};
 pub use mcp::{serve_stdio as serve_mcp_stdio, McpState};
 use metrics::ServerMetrics;
@@ -65,8 +68,11 @@ pub fn bind(host: &str, port: u16) -> std::io::Result<std::net::TcpListener> {
 /// Bind, load, and serve until the process is killed (the CLI's `artificer serve`).
 ///
 /// The port is bound first ([`bind`]), so a busy or forbidden port is reported before a
-/// multi-GB model is loaded.
+/// multi-GB model is loaded. A non-loopback `host` with no API key is refused before the
+/// bind (see [`ServerConfig::check_bind_security`]).
 pub async fn serve(cfg: ServerConfig) -> Result<()> {
+    cfg.check_bind_security()
+        .map_err(ServerError::InsecureBind)?;
     let listener = bind(&cfg.host, cfg.port).map_err(|source| ServerError::Bind {
         addr: format!("{}:{}", cfg.host, cfg.port),
         source,
@@ -79,7 +85,8 @@ pub async fn serve(cfg: ServerConfig) -> Result<()> {
 ///
 /// `cfg.host` / `cfg.port` are used only for the log line and the non-loopback warnings; the
 /// socket is `listener`. Model load failures return [`ServerError::Runtime`] and nothing is
-/// served.
+/// served. A non-loopback `cfg.host` with no API key returns [`ServerError::InsecureBind`]
+/// before the model is touched, unless `cfg.allow_insecure_bind`.
 pub async fn serve_with_listener<F>(
     listener: std::net::TcpListener,
     cfg: ServerConfig,
@@ -88,7 +95,9 @@ pub async fn serve_with_listener<F>(
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
-    if !cfg.is_loopback_bind() {
+    cfg.check_bind_security()
+        .map_err(ServerError::InsecureBind)?;
+    if !cfg.is_loopback_host() && cfg.api_key.is_none() {
         tracing::warn!(
             "binding to non-loopback address {} — this exposes an unauthenticated inference API",
             cfg.host
@@ -99,6 +108,12 @@ where
     }
     listener.set_nonblocking(true)?;
     let local = listener.local_addr()?;
+    // Host / Origin are checked against the port actually bound (the desktop binds :0).
+    let security =
+        Arc::new(security::Security::new(&cfg, local.port()).map_err(ServerError::Other)?);
+    if cfg.api_key.is_some() {
+        tracing::info!("API key required on every route except GET /health");
+    }
     let listener = tokio::net::TcpListener::from_std(listener)?;
     tracing::info!("loading model {} ...", cfg.model_path.display());
     let t0 = Instant::now();
@@ -156,14 +171,15 @@ where
         metrics: ServerMetrics::default(),
     });
 
-    let mut app = Router::new()
+    let routes = Router::new()
         .route("/health", get(health))
         .route("/v1/models", get(list_models))
         .route("/v1/models/load", post(load_model))
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/chat/cancel", post(cancel_chat))
         .route("/mcp", post(mcp::mcp_http))
-        .layer(DefaultBodyLimit::max(cfg.limits.max_body_bytes))
+        .layer(DefaultBodyLimit::max(cfg.limits.max_body_bytes));
+    let mut app = security::apply(routes, security)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

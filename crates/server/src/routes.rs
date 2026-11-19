@@ -66,7 +66,7 @@ impl ChatControl {
     }
 
     /// Register `cancel` as the in-flight generation `id` until the guard drops.
-    fn begin(&self, id: &str, cancel: Arc<AtomicBool>) -> ActiveGuard<'_> {
+    pub(crate) fn begin(&self, id: &str, cancel: Arc<AtomicBool>) -> ActiveGuard<'_> {
         *self.active.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), cancel));
         ActiveGuard {
             control: self,
@@ -87,7 +87,7 @@ impl ChatControl {
     }
 }
 
-struct ActiveGuard<'a> {
+pub(crate) struct ActiveGuard<'a> {
     control: &'a ChatControl,
     id: String,
 }
@@ -108,7 +108,7 @@ impl Drop for ActiveGuard<'_> {
 /// Sets the flag when dropped: a non-streaming handler future that is dropped
 /// (client hung up) cancels its blocking generation within one token, or within one
 /// prefill chunk while the prompt is still being prefilled.
-struct CancelOnDrop(Arc<AtomicBool>);
+pub(crate) struct CancelOnDrop(pub(crate) Arc<AtomicBool>);
 
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
@@ -198,38 +198,10 @@ pub async fn load_model(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LoadModelRequest>,
 ) -> Response {
-    let raw = req.path.trim();
-    if raw.is_empty() {
-        return err_response(StatusCode::BAD_REQUEST, "path is required");
-    }
-    let requested = PathBuf::from(raw);
-    if !requested.is_absolute() {
-        return err_response(
-            StatusCode::BAD_REQUEST,
-            "path must be an absolute filesystem path",
-        );
-    }
-    let path = match requested.canonicalize() {
+    let path = match checked_model_path(&req.path) {
         Ok(p) => p,
-        Err(e) => {
-            return err_response(
-                StatusCode::BAD_REQUEST,
-                format!("model file not found: {} ({e})", requested.display()),
-            );
-        }
+        Err(msg) => return err_response(StatusCode::BAD_REQUEST, msg),
     };
-    if !path.is_file() {
-        return err_response(
-            StatusCode::BAD_REQUEST,
-            format!("not a file: {}", path.display()),
-        );
-    }
-    if !is_gguf(&path) {
-        return err_response(
-            StatusCode::BAD_REQUEST,
-            format!("not a .gguf file: {}", path.display()),
-        );
-    }
 
     let model_id = model_id_from_path(&path);
     let opts = state.load_opts.clone();
@@ -249,19 +221,15 @@ pub async fn load_model(
             }
             engine
         }
+        // The full error (it can name the path or quote bytes of the file) goes only to the
+        // local log; the client gets `public_load_error`.
         Ok(Err(e)) => {
             tracing::error!("model load failed (previous model kept): {e}");
-            return err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to load model: {e}"),
-            );
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, public_load_error(&e));
         }
         Err(e) => {
             tracing::error!("model load task failed (previous model kept): {e}");
-            return err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to load model: {e}"),
-            );
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, LOAD_FAILED_GENERIC);
         }
     };
 
@@ -288,6 +256,93 @@ pub async fn load_model(
         "backend": backend_json(&status),
     }))
     .into_response()
+}
+
+/// `POST /v1/models/load` answer for a path that is missing, not a regular file, or not
+/// `.gguf`: one message for all three, with no path, so the endpoint cannot probe the disk.
+pub(crate) const LOAD_PATH_ERROR: &str = "model file not found or not a .gguf file";
+
+/// `POST /v1/models/load` answer for any load failure that is not one of our own refusals
+/// (GGUF parse and I/O errors quote paths and file bytes; those stay in the server log).
+pub(crate) const LOAD_FAILED_GENERIC: &str =
+    "This file couldn't be loaded. It may be damaged or not a supported GGUF model.";
+
+/// Architecture names the engine's own refusals spell out (`Architecture::parse`), besides the
+/// ones it can load.
+const NAMED_REFUSED_ARCHES: [&str; 4] = ["deepseek2", "qwen3moe", "jamba", "falcon-h1"];
+
+/// Validate the requested path: absolute, an existing regular file, `.gguf`. Canonical on success.
+pub(crate) fn checked_model_path(raw: &str) -> std::result::Result<PathBuf, &'static str> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err("path is required");
+    }
+    let requested = PathBuf::from(raw);
+    if !requested.is_absolute() {
+        return Err("path must be an absolute filesystem path");
+    }
+    let path = match requested.canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("model load refused: {} ({e})", requested.display());
+            return Err(LOAD_PATH_ERROR);
+        }
+    };
+    if !path.is_file() || !is_gguf(&path) {
+        tracing::warn!("model load refused: {} is not a .gguf file", path.display());
+        return Err(LOAD_PATH_ERROR);
+    }
+    Ok(path)
+}
+
+/// An architecture name the engine knows (one it loads, or one its refusals name). Only these
+/// are echoed: the name is `general.architecture` from the file.
+fn known_arch(name: &str) -> bool {
+    artificer_core::Architecture::parse(name).is_ok() || NAMED_REFUSED_ARCHES.contains(&name)
+}
+
+/// What a client sees for a failed load. Our own fixed refusals pass through (MoE gate, CUDA
+/// gate, unsupported architecture — the name only when [`known_arch`]); everything else is
+/// [`LOAD_FAILED_GENERIC`].
+pub(crate) fn public_load_error(e: &artificer_runtime::RuntimeError) -> String {
+    use artificer_core::CoreError;
+    use artificer_runtime::RuntimeError;
+    let refusal = match e {
+        RuntimeError::Core(CoreError::UnsupportedArchitecture(what)) => {
+            let name = what.split(' ').next().unwrap_or("");
+            Some(if known_arch(name) {
+                format!("unsupported architecture `{name}`")
+            } else {
+                "unsupported model architecture".to_owned()
+            })
+        }
+        RuntimeError::Core(CoreError::Other(msg)) if is_moe_gate(msg) => Some(msg.clone()),
+        RuntimeError::Core(CoreError::Backend(msg)) if is_cuda_gate(msg) => Some(msg.clone()),
+        _ => None,
+    };
+    match refusal {
+        Some(r) => format!("failed to load model: {r}"),
+        None => LOAD_FAILED_GENERIC.to_owned(),
+    }
+}
+
+/// The experimental-MoE gate (`artificer_core::config::moe_gate`) for a known architecture.
+fn is_moe_gate(msg: &str) -> bool {
+    let tail = format!(
+        "` is an MoE model; MoE support is experimental: pass {} to load it",
+        artificer_core::EXPERIMENTAL_MOE_FLAG
+    );
+    msg.strip_prefix('`')
+        .and_then(|m| m.strip_suffix(tail.as_str()))
+        .is_some_and(known_arch)
+}
+
+/// The CUDA scope refusal (`cuda_refusal_reason` in core `model.rs`) for a known architecture.
+/// Everything after the name is fixed text.
+fn is_cuda_gate(msg: &str) -> bool {
+    msg.strip_prefix("the CUDA backend does not support `")
+        .and_then(|m| m.split_once("` models yet: "))
+        .is_some_and(|(arch, _)| known_arch(arch))
 }
 
 fn is_gguf(path: &Path) -> bool {

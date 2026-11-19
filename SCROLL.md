@@ -619,7 +619,11 @@ Boots Tokio/Axum: load model, bind host/port, install body limits, optional CORS
 
 ### `crates/server/src/config.rs`
 
-Bind address, model path/id, `RequestLimits` (max tokens, body size, message counts)—operational knobs and DoS guards around §7.
+Bind address, model path/id, `RequestLimits` (max tokens, body size, message counts)—operational knobs and DoS guards around §7. Also the security settings (`allowed_hosts`, `allowed_origins`, `api_key`, `allow_insecure_bind`) and the non-loopback bind refusal (`check_bind_security`).
+
+### `crates/server/src/security.rs`
+
+Middleware in front of every route, outermost first: `Host` / `Origin` allowlist against the port actually bound (403; guards against DNS rebinding and cross-site pages), optional `Authorization: Bearer` API key with a constant-time compare (401; `GET /health` stays open), and a JSON `Content-Type` on every POST (415), which forces a browser CORS preflight.
 
 ### `crates/server/src/error.rs`
 
@@ -639,11 +643,11 @@ Adapts API messages (including tool history) to `artificer_core::render_chat` (t
 
 ### `crates/server/src/routes.rs`
 
-Handlers: `/health`, `/v1/models`, `/v1/chat/completions`. Non-stream path returns full JSON (with optional `tool_calls`); stream path runs generation on a blocking thread and emits SSE token deltas—or buffered tool_calls when tools are active (§5 + §7). Serializes access with a mutex (single active generation). `POST /v1/chat/cancel` and client hang-ups set the running completion's cancel flag: it stops within one token while decoding, or within one prefill chunk while the prompt is being prefilled (final chunk `finish_reason: "user"`, zero tokens).
+Handlers: `/health`, `/v1/models`, `/v1/chat/completions`. Non-stream path returns full JSON (with optional `tool_calls`); stream path runs generation on a blocking thread and emits SSE token deltas—or buffered tool_calls when tools are active (§5 + §7). Serializes access with a mutex (single active generation). `POST /v1/models/load` answers one message for a missing / non-file / non-`.gguf` path and a generic message for damaged files, passing through only the engine's own refusals (MoE gate, CUDA scope, unsupported architecture, named only when it is a known one); the full error goes to the log. `POST /v1/chat/cancel` and client hang-ups set the running completion's cancel flag: it stops within one token while decoding, or within one prefill chunk while the prompt is being prefilled (final chunk `finish_reason: "user"`, zero tokens).
 
 ### `crates/server/src/mcp.rs`
 
-MCP JSON-RPC 2.0 (§7.2): `initialize`, `ping`, `tools/list`, `tools/call` (`chat` / `complete`), `prompts/list` / `prompts/get`, empty `resources/list`. Stdio loop (newline-delimited) and HTTP `POST /mcp` adapter over the same engine mutex.
+MCP JSON-RPC 2.0 (§7.2): `initialize`, `ping`, `tools/list`, `tools/call` (`chat` / `complete`), `prompts/list` / `prompts/get`, empty `resources/list`. Stdio loop (newline-delimited) and HTTP `POST /mcp` adapter over the same engine mutex. Over HTTP, `chat` / `complete` register with the same cancel flag as chat completions (`POST /v1/chat/cancel` by JSON-RPC id or with no id, and client hang-ups), and both tools apply `max_prompt_chars` (over all `chat` messages combined) and the `max_tokens` cap.
 
 ### `crates/server/src/metrics.rs`
 

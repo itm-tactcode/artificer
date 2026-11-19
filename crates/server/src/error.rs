@@ -21,6 +21,10 @@ pub enum ServerError {
         source: std::io::Error,
     },
 
+    /// A non-loopback bind with no API key and no `allow_insecure_bind`.
+    #[error("{0}")]
+    InsecureBind(String),
+
     #[error("{0}")]
     Other(String),
 }

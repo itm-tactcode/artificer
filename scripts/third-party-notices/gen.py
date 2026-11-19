@@ -457,7 +457,7 @@ n_cli = sum(1 for k in all_reg if "cli:" in cli_targets.get(k, ""))
 n_desk = sum(1 for k in all_reg if "desktop:" in cli_targets.get(k, ""))
 mpl = sorted(k for k in all_reg if norm_expr(info[k]["license"]) == "MPL-2.0")
 w("# Third-party notices\n")
-w("> Covers every binary in the Artificer 0.1.0 release: the `artificer` command-line binary and the desktop app "
+w("> Covers every binary in the Artificer 0.1.1 release: the `artificer` command-line binary and the desktop app "
   "(`artificer-desktop`, Tauri 2) for Linux x86_64, Windows x86_64 and macOS aarch64. Generated from `Cargo.lock` by "
   "`scripts/third-party-notices/crates.sh` (the crate set: `cargo tree --offline --locked -e normal,build` for "
   "`artificer-cli` and `artificer-desktop` on `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc` and "
